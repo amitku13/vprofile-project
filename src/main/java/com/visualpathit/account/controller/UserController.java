@@ -42,12 +42,14 @@ public class UserController {
         userValidator.validate(userForm, bindingResult);
 
         if (bindingResult.hasErrors()) {
+            model.addAttribute("error", "Validation failed! Please correct the fields.");
             return "registration";
         }
 
         userService.save(userForm);
         boolean loginSuccessful = securityService.autologin(userForm.getUsername(), userForm.getPasswordConfirm());
         if (!loginSuccessful) {
+            model.addAttribute("error", "Auto-login failed. Please log in manually.");
             return "redirect:/login?error";
         }
 
@@ -58,7 +60,7 @@ public class UserController {
     public String login(Model model, @RequestParam(value = "error", required = false) String error,
                         @RequestParam(value = "logout", required = false) String logout) {
         if (error != null) {
-            model.addAttribute("error", "Your username and password is invalid.");
+            model.addAttribute("error", "Your username and password are invalid.");
         }
         if (logout != null) {
             model.addAttribute("message", "You have been logged out successfully.");
@@ -70,7 +72,7 @@ public class UserController {
     public String loginPost(@ModelAttribute("user") User user, Model model) {
         boolean loginSuccessful = securityService.autologin(user.getUsername(), user.getPassword());
         if (!loginSuccessful) {
-            model.addAttribute("error", "Your username and password is invalid.");
+            model.addAttribute("error", "Invalid username or password.");
             return "login";
         }
         return "redirect:/welcome";
@@ -95,23 +97,33 @@ public class UserController {
 
     @GetMapping("/users/{id}")
     public String getOneUser(@PathVariable("id") String id, Model model) {
-        String result;
         try {
+            long userId = Long.parseLong(id);
             User userData = MemcachedUtils.memcachedGetData(id);
+            String result;
+
             if (userData != null) {
-                result = "Data is From Cache";
+                result = "Data is from cache";
                 model.addAttribute("user", userData);
             } else {
-                User user = userService.findById(Long.parseLong(id));
+                User user = userService.findById(userId);
+                if (user == null) {
+                    model.addAttribute("error", "User not found.");
+                    return "error";
+                }
                 result = MemcachedUtils.memcachedSetData(user, id);
                 if (result == null) {
-                    result = "Memcached Connection Failure !!";
+                    result = "Memcached Connection Failure!";
                 }
                 model.addAttribute("user", user);
             }
             model.addAttribute("Result", result);
+        } catch (NumberFormatException e) {
+            model.addAttribute("error", "Invalid user ID format.");
+            return "error";
         } catch (Exception e) {
-            e.printStackTrace();
+            model.addAttribute("error", "An unexpected error occurred.");
+            return "error";
         }
         return "user";
     }
@@ -119,25 +131,26 @@ public class UserController {
     @GetMapping("/user/{username}")
     public String userUpdate(@PathVariable("username") String username, Model model) {
         User user = userService.findByUsername(username);
+        if (user == null) {
+            model.addAttribute("error", "User not found.");
+            return "error";
+        }
         model.addAttribute("user", user);
         return "userUpdate";
     }
 
     @PostMapping("/user/{username}")
-    public String userUpdateProfile(@PathVariable("username") String username, @ModelAttribute("user") User userForm) {
+    public String userUpdateProfile(@PathVariable("username") String username, @ModelAttribute("user") User userForm, Model model) {
         User user = userService.findByUsername(username);
+        if (user == null) {
+            model.addAttribute("error", "User not found.");
+            return "error";
+        }
+
         updateUserDetails(user, userForm);
         userService.save(user);
-        return "welcome";
+        return "redirect:/welcome";
     }
-
-//    @GetMapping("/user/rabbit")
-//    public String rabbitmqSetUp() {
-//        for (int i = 0; i < 20; i++) {
-//            producerService.produceMessage(generateString());
-//        }
-//        return "rabbitmq";
-//    }
 
     private void updateUserDetails(User user, User userForm) {
         user.setUsername(userForm.getUsername());
